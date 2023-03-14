@@ -42,7 +42,7 @@ class _SignUpScreenState extends State<SignUpScreen>
       }
     else if (passwordTextEditingController.text.length < 6)
       {
-        Fluttertoast.showToast(msg: "Password must be at least 8 characters");
+        Fluttertoast.showToast(msg: "Password must be at least 6 characters");
       }
     else
       {
