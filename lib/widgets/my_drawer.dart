@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:users_app/mainScreens/legal_screen.dart';
 import 'package:users_app/splashScreen/splash_screen.dart';
 
 import '../global/global.dart';
@@ -121,7 +122,7 @@ class _MyDrawerState extends State<MyDrawer> {
           GestureDetector(
             onTap: ()
             {
-
+              Navigator.push(context, MaterialPageRoute(builder: (c)=> const LegalScreen()));
             },
             child: const ListTile(
               leading: Icon(Icons.info, color: Colors.white,),
