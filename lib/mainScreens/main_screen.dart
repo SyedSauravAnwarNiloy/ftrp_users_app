@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -8,12 +10,11 @@ import 'package:users_app/assistants/assistant_methods.dart';
 import 'package:users_app/global/global.dart';
 import 'package:users_app/mainScreens/search_places_screen.dart';
 import 'package:users_app/widgets/my_drawer.dart';
+import 'package:users_app/widgets/progress_dialog.dart';
 
-import '../infoHandler/app_info.dart';
+import 'package:users_app/infoHandler/app_info.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({Key? key}) : super(key: key);
-
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -37,6 +38,17 @@ class _MainScreenState extends State<MainScreen> {
 
   LocationPermission? _locationPermission;
   double bottomPaddingOfMap = 0;
+
+  List<LatLng> pLineCoordinatesList = [];
+  Set<Polyline> polyLineSet = {};
+
+  Set<Marker> markerSet = {};
+  Set<Circle> circleSet = {};
+
+  String userName = "Your Name";
+  String userEmail = "Your Email";
+
+  bool openNavigationDrawer = true;
 
   blackThemeGoogleMap()
   {
@@ -220,14 +232,17 @@ class _MainScreenState extends State<MainScreen> {
     Position cPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     userCurrentPosition = cPosition;
 
-    LatLng LatlngPosition = LatLng(userCurrentPosition!.latitude, userCurrentPosition!.longitude);
+    LatLng latLngPosition = LatLng(userCurrentPosition!.latitude, userCurrentPosition!.longitude);
 
-    CameraPosition cameraPosition = CameraPosition(target: LatlngPosition, zoom: 14);
+    CameraPosition cameraPosition = CameraPosition(target: latLngPosition, zoom: 14);
 
     newGoogleMapController!.animateCamera(CameraUpdate.newCameraPosition(cameraPosition));
 
     String humanReadableAddress = await AssistantMethods.searchAddressForGeographicCoordinates(userCurrentPosition!, context);
-    print("This is your address = " + humanReadableAddress);
+    //print("This is your address = " + humanReadableAddress);
+
+    userName = userModelCurrentInfo!.name!;
+    userEmail = userModelCurrentInfo!.email!;
   }
 
   @override
@@ -241,13 +256,16 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: sKey,
-      drawer: Theme(
-        data: Theme.of(context).copyWith(
-          canvasColor: Colors.grey[850],
-        ),
-        child: MyDrawer(
-          name: userModelCurrentInfo!.name,
-          email: userModelCurrentInfo!.email,
+      drawer: Container(
+        width: 265,
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            canvasColor: Colors.grey[850],
+          ),
+          child: MyDrawer(
+            name: userName,
+            email: userEmail,
+          ),
         ),
       ),
       body: Stack(
@@ -259,6 +277,9 @@ class _MainScreenState extends State<MainScreen> {
             zoomGesturesEnabled: true,
             zoomControlsEnabled: true,
             initialCameraPosition: _kGooglePlex,
+            polylines: polyLineSet,
+            markers: markerSet,
+            circles: circleSet,
             onMapCreated: (GoogleMapController controller)
             {
               _controllerGoogleMap.complete(controller);
@@ -282,12 +303,20 @@ class _MainScreenState extends State<MainScreen> {
             child: GestureDetector(
               onTap: ()
               {
-                sKey.currentState!.openDrawer();
+                if(openNavigationDrawer)
+                  {
+                    sKey.currentState!.openDrawer();
+                  }
+                else
+                  {
+                    //restart or refresh or minimize app programmatically
+                    SystemNavigator.pop();
+                  }
               },
-              child: const CircleAvatar(
+              child: CircleAvatar(
                 backgroundColor: Colors.white,
                 child: Icon(
-                  Icons.menu,
+                  openNavigationDrawer ? Icons.menu : Icons.close,
                   color: Colors.black,
                 )
               ),
@@ -330,7 +359,7 @@ class _MainScreenState extends State<MainScreen> {
                               Text(
                                 Provider.of<AppInfo>(context).userPickUpLocation != null
                                 ? (Provider.of<AppInfo>(context).userPickUpLocation!.locationName!).substring(0, 30) + "..."
-                                : "Your current Location",
+                                : "Not getting current location",
                                 style: const TextStyle(color: Colors.white, fontSize: 15),
                               )
                             ],
@@ -349,10 +378,20 @@ class _MainScreenState extends State<MainScreen> {
 
                       // To
                       GestureDetector(
-                        onTap: ()
+                        onTap: () async
                         {
                           // go to search places screen
-                          Navigator.push(context, MaterialPageRoute(builder: (c)=> SearchPlacesScreen()));
+                          var responseFromSearchScreen = await Navigator.push(context, MaterialPageRoute(builder: (c)=> SearchPlacesScreen()));
+
+                          if(responseFromSearchScreen == "obtainedDropOff")
+                            {
+                              setState(() {
+                                openNavigationDrawer = false;
+                              });
+
+                              //draw routes - draw polyline
+                              await drawPolyLineFromOriginToDestination();
+                            }
                         },
                         child: Row(
                           children: [
@@ -366,7 +405,9 @@ class _MainScreenState extends State<MainScreen> {
                                   style: TextStyle(color: Colors.grey, fontSize: 12),
                                 ),
                                 Text(
-                                  "Receiver's Location",
+                                  Provider.of<AppInfo>(context).userDropOffLocation != null
+                                    ? Provider.of<AppInfo>(context).userDropOffLocation!.locationName!
+                                    : "Receiver's Location",
                                   style: const TextStyle(color: Colors.grey, fontSize: 14),
                                 )
                               ],
@@ -409,5 +450,120 @@ class _MainScreenState extends State<MainScreen> {
         ],
       )
     );
+  }
+
+  Future<void> drawPolyLineFromOriginToDestination() async
+  {
+    var originPosition = Provider.of<AppInfo>(context, listen: false).userPickUpLocation;
+    var destinationPosition = Provider.of<AppInfo>(context, listen: false).userDropOffLocation;
+
+    var originLatLng = LatLng(originPosition!.locationLatitude!, originPosition.locationLongitude!);
+    var destinationLatLng = LatLng(destinationPosition!.locationLatitude!, destinationPosition.locationLongitude!);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) => ProgressDialog(message: "Please wait...",),
+    );
+
+    var directionDetailsInfo = await AssistantMethods.obtainOriginToDestinationDirectionDetails(originLatLng, destinationLatLng);
+
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    PolylinePoints pPoints = PolylinePoints();
+    List<PointLatLng> decodedPolyLinePointsResultList = pPoints.decodePolyline(directionDetailsInfo!.e_points!);
+
+    pLineCoordinatesList.clear();
+
+    if(decodedPolyLinePointsResultList.isNotEmpty)
+      {
+        decodedPolyLinePointsResultList.forEach((PointLatLng pointLatLng) {
+          pLineCoordinatesList.add(LatLng(pointLatLng.latitude, pointLatLng.longitude));
+        });
+      }
+
+    polyLineSet.clear();
+
+    setState(() {
+      Polyline polyline = Polyline(
+        color: Colors.white,
+        polylineId: const PolylineId("PolylineID"),
+        jointType: JointType.round,
+        points: pLineCoordinatesList,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        geodesic: true,
+      );
+
+      polyLineSet.add(polyline);
+    });
+
+    LatLngBounds boundsLatLng;
+    if(originLatLng.latitude > destinationLatLng.latitude && originLatLng.longitude > destinationLatLng.longitude)
+    {
+      boundsLatLng = LatLngBounds(southwest: destinationLatLng, northeast: originLatLng);
+    }
+    else if(originLatLng.longitude > destinationLatLng.longitude)
+    {
+      boundsLatLng = LatLngBounds(
+          southwest: LatLng(originLatLng.latitude, destinationLatLng.longitude),
+          northeast: LatLng(destinationLatLng.latitude, originLatLng.longitude)
+      );
+    }
+    else if(originLatLng.latitude > destinationLatLng.latitude) 
+    {
+      boundsLatLng = LatLngBounds(
+        southwest: LatLng(destinationLatLng.latitude, originLatLng.longitude),
+        northeast: LatLng(originLatLng.latitude, destinationLatLng.longitude),
+      );
+    }
+    else
+    {
+      boundsLatLng = LatLngBounds(southwest: originLatLng, northeast: destinationLatLng);
+    }
+
+    newGoogleMapController!.animateCamera(CameraUpdate.newLatLngBounds(boundsLatLng, 65));
+
+    Marker originMarker = Marker(
+      markerId: const MarkerId("originID"),
+      infoWindow: InfoWindow(title: originPosition.locationName, snippet: "Origin"),
+      position: originLatLng,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+    );
+
+    Marker destinationMarker = Marker(
+      markerId: const MarkerId("destinationID"),
+      infoWindow: InfoWindow(title: destinationPosition.locationName, snippet: "Destination"),
+      position: destinationLatLng,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+    );
+
+    setState(() {
+      markerSet.add(originMarker);
+      markerSet.add(destinationMarker);
+    });
+
+    Circle originCircle = Circle(
+      circleId: const CircleId("originID"),
+      fillColor: Colors.white,
+      radius: 12,
+      strokeWidth: 3,
+      strokeColor: Colors.red,
+      center: originLatLng,
+    );
+
+    Circle destinationCircle = Circle(
+      circleId: const CircleId("destinationID"),
+      fillColor: Colors.white,
+      radius: 12,
+      strokeWidth: 3,
+      strokeColor: Colors.blue,
+      center: destinationLatLng,
+    );
+
+    setState(() {
+      circleSet.add(originCircle);
+      circleSet.add(destinationCircle);
+    });
   }
 }

@@ -27,7 +27,7 @@ class _MySplashScreenState extends State<MySplashScreen> {
         {
           currentFirebaseUser = fAuth.currentUser;
           if(!mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (c)=> const MainScreen()));
+          Navigator.push(context, MaterialPageRoute(builder: (c)=> MainScreen()));
         }
       else
         {
