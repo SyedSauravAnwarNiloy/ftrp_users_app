@@ -2,13 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_geofire/flutter_geofire.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:users_app/assistants/assistant_methods.dart';
+import 'package:users_app/assistants/geofire_assistant.dart';
 import 'package:users_app/global/global.dart';
 import 'package:users_app/mainScreens/search_places_screen.dart';
+import 'package:users_app/models/active_nearby_available_deliverymen.dart';
 import 'package:users_app/widgets/my_drawer.dart';
 import 'package:users_app/widgets/progress_dialog.dart';
 
@@ -49,6 +52,9 @@ class _MainScreenState extends State<MainScreen> {
   String userEmail = "Your Email";
 
   bool openNavigationDrawer = true;
+  bool activeNearbyDeliverymanKeysLoaded = false;
+
+  BitmapDescriptor? activeNearbyIcon;
 
   blackThemeGoogleMap()
   {
@@ -243,6 +249,8 @@ class _MainScreenState extends State<MainScreen> {
 
     userName = userModelCurrentInfo!.name!;
     userEmail = userModelCurrentInfo!.email!;
+
+    initializedGeoFireListener();
   }
 
   @override
@@ -254,6 +262,8 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    createActiveNearbyDeliverymanIconMarker();
+
     return Scaffold(
       key: sKey,
       drawer: Container(
@@ -358,7 +368,7 @@ class _MainScreenState extends State<MainScreen> {
                               ),
                               Text(
                                 Provider.of<AppInfo>(context).userPickUpLocation != null
-                                ? (Provider.of<AppInfo>(context).userPickUpLocation!.locationName!).substring(0, 30) + "..."
+                                ? "${(Provider.of<AppInfo>(context).userPickUpLocation!.locationName!).substring(0, 30)}..."
                                 : "Not getting current location",
                                 style: const TextStyle(color: Colors.white, fontSize: 15),
                               )
@@ -565,5 +575,99 @@ class _MainScreenState extends State<MainScreen> {
       circleSet.add(originCircle);
       circleSet.add(destinationCircle);
     });
+  }
+
+  initializedGeoFireListener() {
+    Geofire.initialize("activeDeliverymen");
+
+    Geofire.queryAtLocation(
+        userCurrentPosition!.latitude, userCurrentPosition!.longitude, 10)!
+        .listen((map) {
+      print(map);
+      if (map != null) {
+        var callBack = map['callBack'];
+
+        //latitude will be retrieved from map['latitude']
+        //longitude will be retrieved from map['longitude']
+
+        switch (callBack) {
+          //whenever any deliveryman becomes online
+          case Geofire.onKeyEntered:
+            ActiveNearbyAvailableDeliverymen activeNearbyAvailableDeliveryman = ActiveNearbyAvailableDeliverymen();
+            activeNearbyAvailableDeliveryman.locationLatitude = map['latitude'];
+            activeNearbyAvailableDeliveryman.locationLongitude = map['longitude'];
+            activeNearbyAvailableDeliveryman.deliverymanId = map['key'];
+            GeoFireAssistant.activeNearbyAvailableDeliverymenList.add(activeNearbyAvailableDeliveryman);
+            if(activeNearbyDeliverymanKeysLoaded == true)
+              {
+                displayActiveDeliverymenOnUsersMap();
+              }
+            break;
+
+          //whenever any deliveryman becomes offline
+          case Geofire.onKeyExited:
+            GeoFireAssistant.deleteOfflineDeliverymanFromList(map['key']);
+            displayActiveDeliverymenOnUsersMap();
+            break;
+
+          case Geofire.onKeyMoved:
+            ActiveNearbyAvailableDeliverymen activeNearbyAvailableDeliveryman = ActiveNearbyAvailableDeliverymen();
+            activeNearbyAvailableDeliveryman.locationLatitude = map['latitude'];
+            activeNearbyAvailableDeliveryman.locationLongitude = map['longitude'];
+            activeNearbyAvailableDeliveryman.deliverymanId = map['key'];
+            GeoFireAssistant.updateActiveNearbyAvailableDeliverymenLocation(activeNearbyAvailableDeliveryman);
+            displayActiveDeliverymenOnUsersMap();
+            break;
+
+          //display those online drivers on user's map
+          case Geofire.onGeoQueryReady:
+            activeNearbyDeliverymanKeysLoaded = true;
+            displayActiveDeliverymenOnUsersMap();
+            break;
+        }
+      }
+
+      setState(() {});
+    });
+  }
+
+  displayActiveDeliverymenOnUsersMap()
+  {
+    setState(() {
+      markerSet.clear();
+      circleSet.clear();
+
+      Set<Marker> deliverymenMarkerSet = Set<Marker>();
+      
+      for(ActiveNearbyAvailableDeliverymen eachDeliveryman in GeoFireAssistant.activeNearbyAvailableDeliverymenList)
+        {
+          LatLng eachDeliverymanActivePosition = LatLng(eachDeliveryman.locationLatitude!, eachDeliveryman.locationLongitude!);
+          
+          Marker marker = Marker(
+            markerId: MarkerId(eachDeliveryman.deliverymanId!),
+            position: eachDeliverymanActivePosition,
+            icon: activeNearbyIcon!,
+            rotation: 360,
+          );
+
+          deliverymenMarkerSet.add(marker);
+        }
+
+      setState(() {
+        markerSet = deliverymenMarkerSet;
+      });
+    });
+  }
+  
+  createActiveNearbyDeliverymanIconMarker()
+  {
+    if(activeNearbyIcon == null)
+      {
+        ImageConfiguration imageConfiguration = createLocalImageConfiguration(context, size: Size(2, 2));
+        BitmapDescriptor.fromAssetImage(imageConfiguration, "images/DeliverymanMarker.png").then((value)
+        {
+          activeNearbyIcon = value;
+        });
+      }
   }
 }
