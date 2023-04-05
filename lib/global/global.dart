@@ -5,3 +5,5 @@ final FirebaseAuth fAuth = FirebaseAuth.instance;
 
 User? currentFirebaseUser;
 UserModel? userModelCurrentInfo;
+
+List dList = []; // deliverymen keys info list

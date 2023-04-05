@@ -16,7 +16,7 @@ void main() async
         child: ChangeNotifierProvider(
           create: (context) => AppInfo(),
           child: MaterialApp(
-            title: 'Deliveryman App',
+            title: 'FTR Parcels',
             theme: ThemeData(
               primarySwatch: Colors.blue,
             ),

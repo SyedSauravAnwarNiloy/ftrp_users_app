@@ -1,16 +1,20 @@
 import 'dart:async';
 
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_geofire/flutter_geofire.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:users_app/assistants/assistant_methods.dart';
 import 'package:users_app/assistants/geofire_assistant.dart';
 import 'package:users_app/global/global.dart';
+import 'package:users_app/main.dart';
 import 'package:users_app/mainScreens/search_places_screen.dart';
+import 'package:users_app/mainScreens/select_online_deliverymen_screen.dart';
 import 'package:users_app/models/active_nearby_available_deliverymen.dart';
 import 'package:users_app/widgets/my_drawer.dart';
 import 'package:users_app/widgets/progress_dialog.dart';
@@ -55,6 +59,8 @@ class _MainScreenState extends State<MainScreen> {
   bool activeNearbyDeliverymanKeysLoaded = false;
 
   BitmapDescriptor? activeNearbyIcon;
+
+  List<ActiveNearbyAvailableDeliverymen> onlineNearbyAvailableDeliverymenList = [];
 
   blackThemeGoogleMap()
   {
@@ -260,6 +266,59 @@ class _MainScreenState extends State<MainScreen> {
     checkIfLocationPermissionAllowed();
   }
 
+  saveCourierRequestInformation()
+  {
+    // save courier request information
+
+    onlineNearbyAvailableDeliverymenList = GeoFireAssistant.activeNearbyAvailableDeliverymenList;
+    searchNearestOnlineDeliverymen();
+  }
+
+  searchNearestOnlineDeliverymen() async
+  {
+    if(onlineNearbyAvailableDeliverymenList.length == 0)
+      {
+        // cancel/delete the courier request
+
+        setState(() {
+          polyLineSet.clear();
+          markerSet.clear();
+          circleSet.clear();
+          pLineCoordinatesList.clear();
+        });
+
+        Fluttertoast.showToast(msg: "");
+        Fluttertoast.showToast(msg: "No online nearest Deliverymen available. Search again for deliverymen after some time. Restarting app now.");
+        Future.delayed(const Duration(milliseconds: 4000), ()
+        {
+          MyApp.restartApp(context);
+        });
+
+
+        return;
+      }
+
+    await retrieveOnlineDeliverymenInformation(onlineNearbyAvailableDeliverymenList);
+
+    Navigator.push(context, MaterialPageRoute(builder: (c)=> SelectNearestActiveDeliverymenScreen()));
+  }
+
+  retrieveOnlineDeliverymenInformation(List onlineNearestDeliverymenList) async
+  {
+    DatabaseReference ref = FirebaseDatabase.instance.ref().child("deliverymen");
+    for(int i=0; i<onlineNearestDeliverymenList.length; i++)
+      {
+        await ref.child(onlineNearestDeliverymenList[i].deliverymanId.toString())
+        .once()
+        .then((dataSnapshot)
+            {
+              var deliverymenKeyInfo = dataSnapshot.snapshot.value;
+              dList.add(deliverymenKeyInfo);
+              print("driverkey information: " +dList.toString());
+            });
+      }
+  }
+
   @override
   Widget build(BuildContext context) {
     createActiveNearbyDeliverymanIconMarker();
@@ -437,7 +496,15 @@ class _MainScreenState extends State<MainScreen> {
                       
                       ElevatedButton(
                         onPressed: () {
+                          if(Provider.of<AppInfo>(context, listen: false).userDropOffLocation != null)
+                            {
+                              saveCourierRequestInformation();
+                            }
+                          else
+                            {
+                              Fluttertoast.showToast(msg: "Please select destination location");
 
+                            }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
