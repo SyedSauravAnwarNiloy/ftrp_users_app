@@ -13,9 +13,12 @@ import 'package:users_app/assistants/assistant_methods.dart';
 import 'package:users_app/assistants/geofire_assistant.dart';
 import 'package:users_app/global/global.dart';
 import 'package:users_app/main.dart';
+import 'package:users_app/mainScreens/parcel_info_screen.dart';
 import 'package:users_app/mainScreens/search_places_screen.dart';
 import 'package:users_app/mainScreens/select_online_deliverymen_screen.dart';
 import 'package:users_app/models/active_nearby_available_deliverymen.dart';
+import 'package:users_app/models/direction_details_info.dart';
+import 'package:users_app/models/directions.dart';
 import 'package:users_app/widgets/my_drawer.dart';
 import 'package:users_app/widgets/progress_dialog.dart';
 
@@ -61,6 +64,9 @@ class _MainScreenState extends State<MainScreen> {
   BitmapDescriptor? activeNearbyIcon;
 
   List<ActiveNearbyAvailableDeliverymen> onlineNearbyAvailableDeliverymenList = [];
+
+  DatabaseReference? referenceCourierRequest;
+
 
   blackThemeGoogleMap()
   {
@@ -266,19 +272,53 @@ class _MainScreenState extends State<MainScreen> {
     checkIfLocationPermissionAllowed();
   }
 
-  saveCourierRequestInformation()
+  saveCourierRequestInformation(Map parcelInfoMap)
   {
     // save courier request information
+    referenceCourierRequest = FirebaseDatabase.instance.ref().child("all courier requests").push();
+
+    var originLocation = Provider.of<AppInfo>(context, listen: false).userPickUpLocation;
+    var destinationLocation = Provider.of<AppInfo>(context, listen: false).userDropOffLocation;
+
+    Map originLocationMap =
+    {
+      "latitude": originLocation!.locationLatitude.toString(),
+      "longitude": originLocation!.locationLongitude.toString(),
+    };
+
+    Map destinationLocationMap =
+    {
+      "latitude": destinationLocation!.locationLatitude.toString(),
+      "longitude": destinationLocation!.locationLongitude.toString(),
+    };
+
+    String feeAmount = parcelInfoMap.remove("parcel_fee");
+
+    Map userInformationMap =
+    {
+      "parcelInformation": parcelInfoMap,
+      "origin": originLocationMap,
+      "destination": destinationLocationMap,
+      "time": DateTime.now().toString(),
+      "userName": userModelCurrentInfo!.name,
+      "userPhone": userModelCurrentInfo!.phone,
+      "originAddress": originLocation.locationName,
+      "destinationAddress": destinationLocation.locationName,
+      "deliverymanId": "waiting",
+    };
+
+    referenceCourierRequest!.set(userInformationMap);
 
     onlineNearbyAvailableDeliverymenList = GeoFireAssistant.activeNearbyAvailableDeliverymenList;
-    searchNearestOnlineDeliverymen();
+    searchNearestOnlineDeliverymen(feeAmount);
   }
 
-  searchNearestOnlineDeliverymen() async
+  searchNearestOnlineDeliverymen(String feeAmount) async
   {
     if(onlineNearbyAvailableDeliverymenList.length == 0)
       {
         // cancel/delete the courier request
+        referenceCourierRequest!.remove();
 
         setState(() {
           polyLineSet.clear();
@@ -287,11 +327,10 @@ class _MainScreenState extends State<MainScreen> {
           pLineCoordinatesList.clear();
         });
 
-        Fluttertoast.showToast(msg: "");
         Fluttertoast.showToast(msg: "No online nearest Deliverymen available. Search again for deliverymen after some time. Restarting app now.");
         Future.delayed(const Duration(milliseconds: 4000), ()
         {
-          MyApp.restartApp(context);
+          SystemNavigator.pop();
         });
 
 
@@ -299,8 +338,38 @@ class _MainScreenState extends State<MainScreen> {
       }
 
     await retrieveOnlineDeliverymenInformation(onlineNearbyAvailableDeliverymenList);
+    if (!mounted) return;
+    var response = await Navigator.push(context, MaterialPageRoute(builder: (c)=>
+        SelectNearestActiveDeliverymenScreen(referenceCourierRequest: referenceCourierRequest, passedFeeAmount: feeAmount)));
+    if(response == "Deliveryman Chosen.")
+      {
+        FirebaseDatabase.instance.ref()
+            .child("deliverymen")
+            .child(chosenDeliverymanId!)
+            .once().then((snap)
+        {
+          if(snap.snapshot.value != null)
+            {
+              //send notification to that specific deliveryman
+              sendNotificationToDeliverymanNow(chosenDeliverymanId!);
+            }
+          else
+            {
+              Fluttertoast.showToast(msg: "This deliveryman does not exist. Try Again");
+            }
+        });
+      }
+  }
 
-    Navigator.push(context, MaterialPageRoute(builder: (c)=> SelectNearestActiveDeliverymenScreen()));
+  sendNotificationToDeliverymanNow(String chosenDeliverymanId)
+  {
+    // assign/set courier request id to newParcelStatus in deliverymen parent node for that specific chosen Deliveryman
+    FirebaseDatabase.instance.ref()
+        .child("deliverymen")
+        .child(chosenDeliverymanId!)
+        .child("newParcelStatus").set(referenceCourierRequest!.key);
+
+    //automate the push notification
   }
 
   retrieveOnlineDeliverymenInformation(List onlineNearestDeliverymenList) async
@@ -314,7 +383,6 @@ class _MainScreenState extends State<MainScreen> {
             {
               var deliverymenKeyInfo = dataSnapshot.snapshot.value;
               dList.add(deliverymenKeyInfo);
-              print("driverkey information: " +dList.toString());
             });
       }
   }
@@ -477,7 +545,7 @@ class _MainScreenState extends State<MainScreen> {
                                   Provider.of<AppInfo>(context).userDropOffLocation != null
                                     ? Provider.of<AppInfo>(context).userDropOffLocation!.locationName!
                                     : "Receiver's Location",
-                                  style: const TextStyle(color: Colors.grey, fontSize: 14),
+                                  style: const TextStyle(color: Colors.white, fontSize: 14),
                                 )
                               ],
                             ),
@@ -495,15 +563,16 @@ class _MainScreenState extends State<MainScreen> {
                       const SizedBox(height: 30,),
                       
                       ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
                           if(Provider.of<AppInfo>(context, listen: false).userDropOffLocation != null)
                             {
-                              saveCourierRequestInformation();
+                              var parcelInfoResponse = await Navigator.push(context, MaterialPageRoute(builder: (c)=> ParcelInfoScreen()));
+
+                              saveCourierRequestInformation(parcelInfoResponse);
                             }
                           else
                             {
                               Fluttertoast.showToast(msg: "Please select destination location");
-
                             }
                         },
                         style: ElevatedButton.styleFrom(
@@ -543,6 +612,9 @@ class _MainScreenState extends State<MainScreen> {
     );
 
     var directionDetailsInfo = await AssistantMethods.obtainOriginToDestinationDirectionDetails(originLatLng, destinationLatLng);
+    setState(() {
+      tripDirectionDetailsInfo = directionDetailsInfo;
+    });
 
     if (!mounted) return;
     Navigator.pop(context);

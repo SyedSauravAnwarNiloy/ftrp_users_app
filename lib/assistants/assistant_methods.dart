@@ -77,4 +77,15 @@ class AssistantMethods
 
     return directionDetailsInfo;
   }
+
+  static double calculateDirectionFee(DirectionDetailsInfo directionDetailsInfo)
+  {
+    double timeTraveledFareAmountPerMinute = (directionDetailsInfo.duration_value! / 60) * 0.03 ;
+    double distanceTraveledFareAmountPerKilometer = (directionDetailsInfo.distance_value! / 1000) * 0.06;
+
+    double totalFareAmount = timeTraveledFareAmountPerMinute + distanceTraveledFareAmountPerKilometer;
+    double localCurrencyTotalFareAmount = totalFareAmount * 106;
+
+    return double.parse(localCurrencyTotalFareAmount.toStringAsFixed(1));
+  }
 }
