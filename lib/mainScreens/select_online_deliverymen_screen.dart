@@ -38,7 +38,7 @@ class _SelectNearestActiveDeliverymenScreenState extends State<SelectNearestActi
 
 
       }
-    print("Passed Fee: ${passedFee}");
+
     return (double.parse(feeAmount)+double.parse(passedFee!)).toStringAsFixed(1);
   }
 
@@ -78,6 +78,11 @@ class _SelectNearestActiveDeliverymenScreenState extends State<SelectNearestActi
               setState(() {
                 chosenDeliverymanId = dList[index]["id"].toString();
               });
+              FirebaseDatabase.instance.ref().child("all courier requests")
+                  .child(widget.referenceCourierRequest!.key!)
+                  .child("userFeeAmount")
+                  .set(getFeeAmount(index));
+
               Navigator.pop(context, "Deliveryman Chosen.");
             },
             child: Card(

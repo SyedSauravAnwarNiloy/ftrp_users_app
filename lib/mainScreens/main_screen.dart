@@ -363,11 +363,11 @@ class _MainScreenState extends State<MainScreen> {
 
   sendNotificationToDeliverymanNow(String chosenDeliverymanId)
   {
-    // assign/set courier request id to newParcelStatus in deliverymen parent node for that specific chosen Deliveryman
+    // assign/set courier request id to newCourierStatus in deliverymen parent node for that specific chosen Deliveryman
     FirebaseDatabase.instance.ref()
         .child("deliverymen")
         .child(chosenDeliverymanId!)
-        .child("newParcelStatus").set(referenceCourierRequest!.key);
+        .child("newCourierStatus").set(referenceCourierRequest!.key);
 
     //automate the push notification
   }
